@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+from numpy.linalg import inv
 
 from numpy import linalg as la
 from matplotlib import cm
@@ -52,18 +53,47 @@ for index, row in train_data.iterrows():
 # phi_df = pd.DataFrame(np.full((num_users, num_movies),np.nan),
 #                       columns=range(1,num_movies+1),
 #                       index=range(1,num_users+1))
-phi_matrix = np.full((num_users, num_movies), np.nan) # (934, 1682)
+e_phi_matrix = np.full((num_users, num_movies), 0) # (934, 1682)
 
 def e_step():
-    U_dot_V = np.matmul(np.transpose(U), V) # (# of u_i, # of v_j) - (934, 1682)
-    U_dot_V_over_sigma = U_dot_V / sigma
-    pdf = norm.pdf(-U_dot_V_over_sigma)
-    cdf = norm.cdf(-U_dot_V_over_sigma)
-    positive = U_dot_V + pdf / (1 - cdf)
-    negative = U_dot_V - pdf / cdf
-    phi_matrix[rating_matrix == 1] = positive[rating_matrix == 1]
-    phi_matrix[rating_matrix == -1] = negative[rating_matrix == -1]
-e_step()
+    UT_dot_V = np.matmul(np.transpose(U), V) # (# of u_i, # of v_j) - (934, 1682)
+    UT_dot_V_over_sigma = UT_dot_V / sigma
+    pdf = norm.pdf(-UT_dot_V_over_sigma)
+    cdf = norm.cdf(-UT_dot_V_over_sigma)
+    positive = UT_dot_V + pdf / (1 - cdf)
+    negative = UT_dot_V - pdf / cdf
+    e_phi_matrix[rating_matrix == 1] = positive[rating_matrix == 1]
+    e_phi_matrix[rating_matrix == -1] = negative[rating_matrix == -1]
+# e_step()
 
 def m_step():
-    U_sq = 1
+    # update u_i first
+    V_dot_VT = np.apply_along_axis(lambda x: np.outer(x, x), 1, V.transpose()) # (1682, 5, 5)
+    V_dot_VT_plus_I = V_dot_VT + np.asarray([I for _ in range(num_movies)]) # (1682, 5, 5)
+    V_dot_e_phi = np.apply_along_axis(
+        lambda e_phi_i: V * e_phi_i, 1, e_phi_matrix) # (943, 5, 1682)
+
+    for idx in range(num_users):
+        first_sum_V = np.sum(V_dot_VT_plus_I[np.logical_not(np.isnan(rating_matrix[idx]))],
+                             axis=0) # (5, 5)
+        second_sum_v = np.sum(V_dot_e_phi[idx], axis=1) # (5,)
+        U[:,idx] = np.matmul(inv(first_sum_V), second_sum_v) # (5,)
+
+    idx = 123
+    first_sum_V = np.sum(V_dot_VT_plus_I[np.logical_not(np.isnan(rating_matrix[idx]))],
+                         axis=0)  # (5, 5)
+    second_sum_v = np.sum(V_dot_e_phi[idx], axis=1)  # (5,)
+    U[:, idx] = np.matmul(inv(first_sum_V), second_sum_v)
+    print U[:, idx].shape
+
+
+    # then update v_j
+    U_dot_UT = np.apply_along_axis(lambda x: np.outer(x, x), 1, U.transpose()) #  (943, 5, 5)
+    U_dot_UT_plus_I = U_dot_UT + np.asarray([I for _ in range(num_users)])
+    U_dot_e_phi = np.apply_along_axis(lambda e_phi_j: U * e_phi_j, 0, e_phi_matrix)
+
+
+
+
+
+m_step()
